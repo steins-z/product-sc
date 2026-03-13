@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -123,10 +124,16 @@ async def extract(document_id: str, request: ExtractionRequest) -> ExtractionRes
         raise HTTPException(status_code=422, detail="Document has no chunks")
 
     try:
-        result = extract_world_model(
+        world_model = await extract_world_model(
+            chunks=chunks_resp.chunks,
+            question=request.question,
+        )
+        # Package into ExtractionResponse
+        result = ExtractionResponse(
             document_id=document_id,
             question=request.question,
-            chunks=chunks_resp.chunks,
+            world_model=world_model,
+            chunks_processed=len(chunks_resp.chunks),
         )
     except Exception as e:
         logger.exception("Extraction failed for document %s", document_id)
@@ -143,15 +150,26 @@ async def extract(document_id: str, request: ExtractionRequest) -> ExtractionRes
 # --------------------------------------------------------------------------- #
 
 
-def _run_extraction(task_id: str, document_id: str, question: str) -> None:
+def _run_extraction_sync(task_id: str, document_id: str, question: str) -> None:
+    """Sync wrapper for background task."""
+    asyncio.run(_run_extraction_async(task_id, document_id, question))
+
+
+async def _run_extraction_async(task_id: str, document_id: str, question: str) -> None:
     """Background task: parse → chunk → extract, then update task status."""
     task = _tasks[task_id]
     try:
         chunks_resp = _chunks[document_id]
-        result = extract_world_model(
+        world_model = await extract_world_model(
+            chunks=chunks_resp.chunks,
+            question=question,
+        )
+        # Package into ExtractionResponse
+        result = ExtractionResponse(
             document_id=document_id,
             question=question,
-            chunks=chunks_resp.chunks,
+            world_model=world_model,
+            chunks_processed=len(chunks_resp.chunks),
         )
         _world_models[document_id] = result
         task.status = TaskStatus.COMPLETED
@@ -203,7 +221,7 @@ async def extract_one_shot(
     task = TaskResponse(task_id=task_id, status=TaskStatus.PROCESSING)
     _tasks[task_id] = task
 
-    background_tasks.add_task(_run_extraction, task_id, doc_result.document_id, question)
+    background_tasks.add_task(_run_extraction_sync, task_id, doc_result.document_id, question)
 
     logger.info("Created extraction task %s for document %s", task_id, doc_result.document_id)
     return task

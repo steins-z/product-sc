@@ -17,14 +17,84 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from app.config import Settings
+from app.models.document import Chunk
 from app.models.world_model import WorldModel
 from app.prompts.extraction import (
     SYSTEM_PROMPT as EXTRACTION_SYSTEM_PROMPT,
-    WORLD_MODEL_SCHEMA as WORLD_MODEL_JSON_SCHEMA,
     build_extraction_prompt as build_user_prompt,
 )
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# JSON Schema for OpenAI structured output
+# ---------------------------------------------------------------------------
+
+WORLD_MODEL_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "actors": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "role": {"type": "string"},
+                    "description": {"type": "string"},
+                    "source_ref": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["name", "role", "description", "source_ref"],
+                "additionalProperties": False
+            }
+        },
+        "relationships": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "from": {"type": "string"},
+                    "to": {"type": "string"},
+                    "type": {"type": "string"},
+                    "description": {"type": "string"},
+                    "source_ref": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["from", "to", "type", "description", "source_ref"],
+                "additionalProperties": False
+            }
+        },
+        "timeline": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string"},
+                    "event": {"type": "string"},
+                    "description": {"type": "string"},
+                    "source_ref": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["date", "event", "description", "source_ref"],
+                "additionalProperties": False
+            }
+        },
+        "variables": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "current_value": {"type": "string"},
+                    "description": {"type": "string"},
+                    "source_ref": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["name", "current_value", "description", "source_ref"],
+                "additionalProperties": False
+            }
+        },
+        "question": {"type": "string"}
+    },
+    "required": ["actors", "relationships", "timeline", "variables", "question"],
+    "additionalProperties": False
+}
 
 # ---------------------------------------------------------------------------
 # Mock response for testing without LLM
@@ -117,7 +187,7 @@ def _build_schema_instruction() -> str:
 
 
 async def extract_world_model(
-    chunks: list[dict[str, str]],
+    chunks: list[Chunk],
     question: str,
     settings: Settings | None = None,
 ) -> WorldModel:
@@ -125,7 +195,7 @@ async def extract_world_model(
     Extract a structured world model from document chunks.
 
     Args:
-        chunks: list of {"chunk_id": str, "text": str}
+        chunks: list of Chunk objects
         question: the prediction question
         settings: app settings (auto-loaded if None)
 
@@ -141,7 +211,7 @@ async def extract_world_model(
         mock = _MOCK_RESPONSE.copy()
         mock["question"] = question
         # Replace mock chunk_ids with real ones if available
-        real_ids = [c["chunk_id"] for c in chunks]
+        real_ids = [c.chunk_id for c in chunks]
         if real_ids:
             for category in ("actors", "relationships", "timeline", "variables"):
                 for item in mock[category]:
@@ -160,7 +230,9 @@ async def extract_world_model(
 
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
-    user_prompt = build_user_prompt(chunks, question)
+    # Convert Chunk objects to dict format for prompt building
+    chunks_dict = [{"chunk_id": c.chunk_id, "text": c.text} for c in chunks]
+    user_prompt = build_user_prompt(question, chunks_dict)
 
     logger.info(
         "Calling LLM: provider=%s model=%s chunks=%d",
