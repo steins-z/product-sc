@@ -21,7 +21,7 @@ from app.models.document import Chunk
 from app.models.world_model import WorldModel
 from app.prompts.extraction import (
     SYSTEM_PROMPT as EXTRACTION_SYSTEM_PROMPT,
-    build_extraction_prompt as build_user_prompt,
+    build_extraction_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -232,7 +232,8 @@ async def extract_world_model(
 
     # Convert Chunk objects to dict format for prompt building
     chunks_dict = [{"chunk_id": c.chunk_id, "text": c.text} for c in chunks]
-    user_prompt = build_user_prompt(question, chunks_dict)
+    # build_extraction_prompt returns (system_prompt, user_prompt)
+    _, user_prompt = build_extraction_prompt(question, chunks_dict)
 
     logger.info(
         "Calling LLM: provider=%s model=%s chunks=%d",
