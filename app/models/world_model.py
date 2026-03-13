@@ -81,3 +81,41 @@ class ExtractionResponse(BaseModel):
     question: str
     world_model: WorldModel
     chunks_processed: int
+
+
+# --------------------------------------------------------------------------- #
+#  Task 5: World Model Update Models                                           #
+# --------------------------------------------------------------------------- #
+
+
+class WorldModelUpdate(BaseModel):
+    """Full replacement of a world model (PUT)."""
+
+    actors: list[Actor] = Field(default_factory=list)
+    relationships: list[Relationship] = Field(default_factory=list)
+    timeline: list[TimelineEvent] = Field(default_factory=list)
+    variables: list[Variable] = Field(default_factory=list)
+
+
+class PatchOperation(BaseModel):
+    """A single patch operation for incremental world model edits."""
+
+    op: str = Field(..., description="Operation: add, remove, replace")
+    path: str = Field(
+        ...,
+        description="Target field: actors, relationships, timeline, or variables",
+    )
+    index: int | None = Field(
+        None,
+        description="Index of item to remove/replace (required for remove/replace)",
+    )
+    value: dict | None = Field(
+        None,
+        description="Item data (required for add/replace)",
+    )
+
+
+class WorldModelPatch(BaseModel):
+    """PATCH request body — list of patch operations."""
+
+    operations: list[PatchOperation] = Field(..., description="List of patch operations")
