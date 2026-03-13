@@ -150,12 +150,7 @@ async def extract(document_id: str, request: ExtractionRequest) -> ExtractionRes
 # --------------------------------------------------------------------------- #
 
 
-def _run_extraction_sync(task_id: str, document_id: str, question: str) -> None:
-    """Sync wrapper for background task."""
-    asyncio.run(_run_extraction_async(task_id, document_id, question))
-
-
-async def _run_extraction_async(task_id: str, document_id: str, question: str) -> None:
+async def _run_extraction(task_id: str, document_id: str, question: str) -> None:
     """Background task: parse → chunk → extract, then update task status."""
     task = _tasks[task_id]
     try:
@@ -221,7 +216,7 @@ async def extract_one_shot(
     task = TaskResponse(task_id=task_id, status=TaskStatus.PROCESSING)
     _tasks[task_id] = task
 
-    background_tasks.add_task(_run_extraction_sync, task_id, doc_result.document_id, question)
+    background_tasks.add_task(_run_extraction, task_id, doc_result.document_id, question)
 
     logger.info("Created extraction task %s for document %s", task_id, doc_result.document_id)
     return task
