@@ -13,10 +13,12 @@ class Settings(BaseSettings):
 
     # API key (works for both OpenAI and Qwen/DashScope)
     llm_api_key: str = ""
+    api_key: str = ""  # alias: also reads API_KEY from env
 
     # Base URL override — set for Qwen DashScope or other OpenAI-compatible APIs
     # Qwen default: https://dashscope.aliyuncs.com/compatible-mode/v1
     llm_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_base: str = ""  # alias: also reads API_BASE from env
 
     # Model name
     llm_model: str = "qwen-plus"
@@ -35,8 +37,8 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     def get_api_key(self) -> str:
-        """Return effective API key (prefer llm_api_key, fallback to openai_api_key)."""
-        return self.llm_api_key or self.openai_api_key
+        """Return effective API key (prefer llm_api_key, then api_key, then openai_api_key)."""
+        return self.llm_api_key or self.api_key or self.openai_api_key
 
     def get_model(self) -> str:
         """Return effective model name."""
@@ -45,10 +47,11 @@ class Settings(BaseSettings):
         return self.llm_model
 
     def get_base_url(self) -> str | None:
-        """Return base URL — None for default OpenAI, DashScope URL for Qwen."""
-        if self.llm_provider == "openai" and self.llm_base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1":
+        """Return base URL — checks api_base, llm_base_url, or None for default OpenAI."""
+        url = self.api_base or self.llm_base_url
+        if self.llm_provider == "openai" and url == "https://dashscope.aliyuncs.com/compatible-mode/v1":
             return None  # use OpenAI default
-        return self.llm_base_url
+        return url
 
 
 settings = Settings()

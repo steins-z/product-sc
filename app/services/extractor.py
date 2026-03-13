@@ -19,9 +19,9 @@ from openai import AsyncOpenAI
 from app.config import Settings
 from app.models.world_model import WorldModel
 from app.prompts.extraction import (
-    EXTRACTION_SYSTEM_PROMPT,
-    WORLD_MODEL_JSON_SCHEMA,
-    build_user_prompt,
+    SYSTEM_PROMPT as EXTRACTION_SYSTEM_PROMPT,
+    WORLD_MODEL_SCHEMA as WORLD_MODEL_JSON_SCHEMA,
+    build_extraction_prompt as build_user_prompt,
 )
 
 logger = logging.getLogger(__name__)
