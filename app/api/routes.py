@@ -26,17 +26,11 @@ from app.models.world_model import (
 from app.services.parser import parse_document
 from app.services.chunker import chunk_text
 from app.services.extractor import extract_world_model
-from app.services.simulation import register_world_model as _register_sim_world_model
+from app import db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# In-memory stores (sufficient for P0 — swap for DB later)
-_documents: dict[str, DocumentUploadResponse] = {}
-_chunks: dict[str, ChunksResponse] = {}
-_tasks: dict[str, TaskResponse] = {}
-_world_models: dict[str, ExtractionResponse] = {}
 
 
 # --------------------------------------------------------------------------- #
@@ -72,12 +66,12 @@ async def upload_document(file: UploadFile = File(...)) -> DocumentUploadRespons
         logger.exception("Failed to parse document: %s", file.filename)
         raise HTTPException(status_code=422, detail=f"Failed to parse document: {e}")
 
-    # Store for later retrieval
-    _documents[result.document_id] = result
+    # Store document
+    await db.save_document(result)
 
-    # Also pre-compute chunks
+    # Pre-compute and store chunks
     chunks_resp = chunk_text(result.text, result.document_id)
-    _chunks[result.document_id] = chunks_resp
+    await db.save_chunks(chunks_resp)
 
     logger.info(
         "Uploaded document %s → %d chars, %d chunks",
@@ -99,9 +93,10 @@ async def get_chunks(document_id: str) -> ChunksResponse:
     """
     Get all chunks for a previously uploaded document.
     """
-    if document_id not in _chunks:
+    chunks_resp = await db.get_chunks(document_id)
+    if not chunks_resp:
         raise HTTPException(status_code=404, detail=f"Document '{document_id}' not found")
-    return _chunks[document_id]
+    return chunks_resp
 
 
 # --------------------------------------------------------------------------- #
@@ -117,10 +112,10 @@ async def extract(document_id: str, request: ExtractionRequest) -> ExtractionRes
 
     Uses GPT-4o structured output (or mock in dev mode).
     """
-    if document_id not in _chunks:
+    chunks_resp = await db.get_chunks(document_id)
+    if not chunks_resp:
         raise HTTPException(status_code=404, detail=f"Document '{document_id}' not found")
 
-    chunks_resp = _chunks[document_id]
     if not chunks_resp.chunks:
         raise HTTPException(status_code=422, detail="Document has no chunks")
 
@@ -129,7 +124,6 @@ async def extract(document_id: str, request: ExtractionRequest) -> ExtractionRes
             chunks=chunks_resp.chunks,
             question=request.question,
         )
-        # Package into ExtractionResponse
         result = ExtractionResponse(
             document_id=document_id,
             question=request.question,
@@ -140,11 +134,8 @@ async def extract(document_id: str, request: ExtractionRequest) -> ExtractionRes
         logger.exception("Extraction failed for document %s", document_id)
         raise HTTPException(status_code=500, detail=f"Extraction failed: {e}")
 
-    # Store world model for later editing
-    _world_models[document_id] = result
-
-    # Register with P1 simulation engine
-    _register_sim_world_model(document_id, result.world_model)
+    # Store world model (serves both P0 and P1)
+    await db.save_world_model(document_id, result)
 
     return result
 
@@ -155,32 +146,35 @@ async def extract(document_id: str, request: ExtractionRequest) -> ExtractionRes
 
 
 async def _run_extraction(task_id: str, document_id: str, question: str) -> None:
-    """Background task: parse → chunk → extract, then update task status."""
-    task = _tasks[task_id]
+    """Background task: extract world model, then update task status."""
+    task = await db.get_task(task_id)
+    if not task:
+        return
     try:
-        chunks_resp = _chunks[document_id]
+        chunks_resp = await db.get_chunks(document_id)
+        if not chunks_resp:
+            raise ValueError(f"Document '{document_id}' not found")
+
         world_model = await extract_world_model(
             chunks=chunks_resp.chunks,
             question=question,
         )
-        # Package into ExtractionResponse
         result = ExtractionResponse(
             document_id=document_id,
             question=question,
             world_model=world_model,
             chunks_processed=len(chunks_resp.chunks),
         )
-        _world_models[document_id] = result
-
-        # Register with P1 simulation engine
-        _register_sim_world_model(document_id, world_model)
+        await db.save_world_model(document_id, result)
 
         task.status = TaskStatus.COMPLETED
         task.result = result
+        await db.save_task(task)
     except Exception as e:
         logger.exception("Background extraction failed for task %s", task_id)
         task.status = TaskStatus.FAILED
         task.error = str(e)
+        await db.save_task(task)
 
 
 @router.post("/extract", response_model=TaskResponse, status_code=202)
@@ -215,14 +209,14 @@ async def extract_one_shot(
         logger.exception("Failed to parse document: %s", file.filename)
         raise HTTPException(status_code=422, detail=f"Failed to parse document: {e}")
 
-    _documents[doc_result.document_id] = doc_result
+    await db.save_document(doc_result)
     chunks_resp = chunk_text(doc_result.text, doc_result.document_id)
-    _chunks[doc_result.document_id] = chunks_resp
+    await db.save_chunks(chunks_resp)
 
     # Create async task
     task_id = uuid.uuid4().hex[:12]
     task = TaskResponse(task_id=task_id, status=TaskStatus.PROCESSING)
-    _tasks[task_id] = task
+    await db.save_task(task)
 
     background_tasks.add_task(_run_extraction, task_id, doc_result.document_id, question)
 
@@ -233,9 +227,10 @@ async def extract_one_shot(
 @router.get("/tasks/{task_id}", response_model=TaskResponse)
 async def get_task(task_id: str) -> TaskResponse:
     """Query the status and result of an async extraction task."""
-    if task_id not in _tasks:
+    task = await db.get_task(task_id)
+    if not task:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
-    return _tasks[task_id]
+    return task
 
 
 # --------------------------------------------------------------------------- #
@@ -254,9 +249,10 @@ _FIELD_MODEL_MAP: dict[str, type] = {
 @router.get("/world-model/{document_id}", response_model=ExtractionResponse)
 async def get_world_model(document_id: str) -> ExtractionResponse:
     """Get the current world model for a document."""
-    if document_id not in _world_models:
+    result = await db.get_world_model_extraction(document_id)
+    if not result:
         raise HTTPException(status_code=404, detail=f"World model for '{document_id}' not found")
-    return _world_models[document_id]
+    return result
 
 
 @router.put("/world-model/{document_id}", response_model=ExtractionResponse)
@@ -268,10 +264,10 @@ async def replace_world_model(
 
     Replaces actors, relationships, timeline, and variables entirely.
     """
-    if document_id not in _world_models:
+    existing = await db.get_world_model_extraction(document_id)
+    if not existing:
         raise HTTPException(status_code=404, detail=f"World model for '{document_id}' not found")
 
-    existing = _world_models[document_id]
     existing.world_model = WorldModel(
         actors=update.actors,
         relationships=update.relationships,
@@ -279,6 +275,7 @@ async def replace_world_model(
         variables=update.variables,
         question=existing.world_model.question,
     )
+    await db.save_world_model(document_id, existing)
     return existing
 
 
@@ -294,10 +291,10 @@ async def patch_world_model(
     - remove: Remove an item by index from a field
     - replace: Replace an item at index in a field
     """
-    if document_id not in _world_models:
+    existing = await db.get_world_model_extraction(document_id)
+    if not existing:
         raise HTTPException(status_code=404, detail=f"World model for '{document_id}' not found")
 
-    existing = _world_models[document_id]
     wm = existing.world_model
 
     for op in patch.operations:
@@ -344,4 +341,5 @@ async def patch_world_model(
                 detail=f"Unknown operation '{op.op}'. Must be: add, remove, replace",
             )
 
+    await db.save_world_model(document_id, existing)
     return existing

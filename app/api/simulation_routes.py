@@ -105,7 +105,7 @@ async def create_simulation(
     )
 
     # Pre-create a placeholder so we can return the ID immediately
-    from app.services.simulation import _simulations
+    from app import db as _db
 
     import uuid
 
@@ -117,7 +117,7 @@ async def create_simulation(
         config=config,
         total_rounds=config.rounds,
     )
-    _simulations[sim_id] = placeholder
+    await _db.save_simulation(placeholder)
 
     async def _run() -> None:
         """Background task wrapper."""
@@ -126,11 +126,12 @@ async def create_simulation(
             # Update the placeholder with the real result
             # (run_simulation creates its own ID, so we patch)
             result.simulation_id = sim_id
-            _simulations[sim_id] = result
+            await _db.save_simulation(result)
         except Exception as e:
             logger.exception("Background simulation %s failed", sim_id)
             placeholder.status = SimulationStatus.FAILED
             placeholder.error = str(e)
+            await _db.save_simulation(placeholder)
 
     background_tasks.add_task(_run)
 
@@ -156,14 +157,14 @@ async def list_all_simulations() -> list[SimulationSummary]:
             current_round=s.current_round,
             total_rounds=s.total_rounds,
         )
-        for s in list_simulations()
+        for s in await list_simulations()
     ]
 
 
 @router.get("/{simulation_id}", response_model=SimulationResult)
 async def get_simulation_detail(simulation_id: str) -> SimulationResult:
     """Get full simulation result (including all rounds and report)."""
-    sim = get_simulation(simulation_id)
+    sim = await get_simulation(simulation_id)
     if not sim:
         raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
     return sim
@@ -172,7 +173,7 @@ async def get_simulation_detail(simulation_id: str) -> SimulationResult:
 @router.get("/{simulation_id}/report")
 async def get_simulation_report(simulation_id: str) -> dict:
     """Get just the prediction report for a completed simulation."""
-    sim = get_simulation(simulation_id)
+    sim = await get_simulation(simulation_id)
     if not sim:
         raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
     if sim.status != SimulationStatus.COMPLETED:
