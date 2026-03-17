@@ -44,24 +44,30 @@ from app.models.simulation import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# In-memory stores (swap for DB later, same pattern as P0)
+# DB-backed stores (replaced P0/P1 in-memory dicts)
 # ---------------------------------------------------------------------------
 
-_simulations: dict[str, SimulationResult] = {}
-_world_models: dict[str, WorldModel] = {}  # populated by P0 extract results
+from app import db as _db
 
 
-def register_world_model(doc_id: str, wm: WorldModel) -> None:
-    """Register an extracted world model so the simulation engine can reference it."""
-    _world_models[doc_id] = wm
+async def register_world_model(doc_id: str, wm: WorldModel) -> None:
+    """Register an extracted world model so the simulation engine can reference it.
+    
+    NOTE: In the DB-backed version, world models are already saved by routes.py
+    via db.save_world_model(). This function is kept for backward compat but
+    is effectively a no-op if the extraction response was already saved.
+    """
+    # World model is already persisted by routes.py save_world_model call.
+    # This is a no-op to maintain API compatibility.
+    pass
 
 
-def get_simulation(sim_id: str) -> SimulationResult | None:
-    return _simulations.get(sim_id)
+async def get_simulation(sim_id: str) -> SimulationResult | None:
+    return await _db.get_simulation(sim_id)
 
 
-def list_simulations() -> list[SimulationResult]:
-    return list(_simulations.values())
+async def list_simulations() -> list[SimulationResult]:
+    return await _db.list_simulations()
 
 
 # ---------------------------------------------------------------------------
@@ -656,7 +662,7 @@ async def run_simulation(
     sim_id = f"sim_{uuid.uuid4().hex[:12]}"
 
     # Look up the world model
-    world_model = _world_models.get(config.world_model_id)
+    world_model = await _db.get_world_model(config.world_model_id)
     if not world_model:
         result = SimulationResult(
             simulation_id=sim_id,
@@ -665,7 +671,7 @@ async def run_simulation(
             error=f"World model '{config.world_model_id}' not found",
             total_rounds=config.rounds,
         )
-        _simulations[sim_id] = result
+        await _db.save_simulation(result)
         return result
 
     # Initialise
@@ -675,7 +681,7 @@ async def run_simulation(
         config=config,
         total_rounds=config.rounds,
     )
-    _simulations[sim_id] = result
+    await _db.save_simulation(result)
 
     try:
         world_state = init_world_state(world_model)
@@ -763,7 +769,7 @@ async def run_simulation(
         result.status = SimulationStatus.FAILED
         result.error = str(e)
 
-    _simulations[sim_id] = result
+    await _db.save_simulation(result)
     return result
 
 
@@ -801,7 +807,7 @@ async def ask_simulation(
     if settings is None:
         settings = Settings()
 
-    sim = _simulations.get(sim_id)
+    sim = await _db.get_simulation(sim_id)
     if not sim:
         raise ValueError(f"Simulation '{sim_id}' not found")
     if sim.status != SimulationStatus.COMPLETED:

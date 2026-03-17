@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # Mock mode — when True, LLM calls return deterministic fake data
     use_mock_llm: bool = True
 
+    # Database
+    db_filename: str = "mirofish.db"
+
     # Chunking
     chunk_max_tokens: int = 1000
     chunk_overlap_tokens: int = 100

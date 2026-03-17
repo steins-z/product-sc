@@ -6,6 +6,7 @@ import asyncio
 import copy
 import json
 import pytest
+import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.config import Settings
@@ -37,12 +38,22 @@ from app.services.simulation import (
     ask_simulation,
     generate_report,
     init_world_state,
-    register_world_model,
     run_simulation,
     update_actor_memory,
-    _simulations,
-    _world_models,
 )
+from app import db
+from app.models.world_model import ExtractionResponse
+
+
+async def _save_test_world_model(doc_id: str, wm: WorldModel) -> None:
+    """Helper: save a world model to DB so simulation can find it."""
+    extraction = ExtractionResponse(
+        document_id=doc_id,
+        question=wm.question,
+        world_model=wm,
+        chunks_processed=1,
+    )
+    await db.save_world_model(doc_id, extraction)
 
 
 # ---------------------------------------------------------------------------
@@ -104,14 +115,12 @@ def mock_settings() -> Settings:
     return Settings(use_mock_llm=True)
 
 
-@pytest.fixture(autouse=True)
-def clean_stores():
-    """Clean in-memory stores before each test."""
-    _simulations.clear()
-    _world_models.clear()
+@pytest_asyncio.fixture(autouse=True)
+async def clean_stores(tmp_path):
+    """Init a fresh test DB before each test."""
+    db_path = str(tmp_path / "test_sim.db")
+    await db.init_db(db_path)
     yield
-    _simulations.clear()
-    _world_models.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +315,7 @@ class TestRunSimulation:
     async def test_full_3_round_simulation(
         self, sample_world_model: WorldModel, mock_settings: Settings
     ):
-        register_world_model("doc_001", sample_world_model)
+        await _save_test_world_model("doc_001", sample_world_model)
 
         config = SimulationConfig(
             world_model_id="doc_001",
@@ -337,7 +346,7 @@ class TestRunSimulation:
     async def test_actors_override(
         self, sample_world_model: WorldModel, mock_settings: Settings
     ):
-        register_world_model("doc_002", sample_world_model)
+        await _save_test_world_model("doc_002", sample_world_model)
 
         config = SimulationConfig(
             world_model_id="doc_002",
@@ -356,7 +365,7 @@ class TestRunSimulation:
     async def test_intervention_injected(
         self, sample_world_model: WorldModel, mock_settings: Settings
     ):
-        register_world_model("doc_003", sample_world_model)
+        await _save_test_world_model("doc_003", sample_world_model)
 
         config = SimulationConfig(
             world_model_id="doc_003",
@@ -382,7 +391,7 @@ class TestRunSimulation:
         self, sample_world_model: WorldModel, mock_settings: Settings
     ):
         """Verify that each round's snapshot is an independent copy."""
-        register_world_model("doc_004", sample_world_model)
+        await _save_test_world_model("doc_004", sample_world_model)
 
         config = SimulationConfig(
             world_model_id="doc_004",
@@ -414,7 +423,7 @@ class TestAskSimulation:
     async def test_ask_completed(
         self, sample_world_model: WorldModel, mock_settings: Settings
     ):
-        register_world_model("doc_ask", sample_world_model)
+        await _save_test_world_model("doc_ask", sample_world_model)
 
         config = SimulationConfig(
             world_model_id="doc_ask",

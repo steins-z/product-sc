@@ -67,9 +67,10 @@ async def test_full_pipeline(sample_md_content: bytes):
         assert len(extraction["world_model"]["actors"]) > 0
 
         # ---- Step 3: Verify world model is registered for simulation ----
-        # The extract endpoint should auto-register with the simulation engine
-        from app.services.simulation import _world_models as sim_world_models
-        assert doc_id in sim_world_models, "World model not registered with simulation engine"
+        # The extract endpoint should auto-save to DB
+        from app import db as _db
+        wm_check = await _db.get_world_model(doc_id)
+        assert wm_check is not None, "World model not saved to DB"
 
         # ---- Step 4: Run simulation ----
         resp = await client.post(
