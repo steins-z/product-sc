@@ -26,6 +26,7 @@ from app.models.world_model import (
 from app.services.parser import parse_document
 from app.services.chunker import chunk_text
 from app.services.extractor import extract_world_model
+from app.services.simulation import register_world_model as _register_sim_world_model
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,9 @@ async def extract(document_id: str, request: ExtractionRequest) -> ExtractionRes
     # Store world model for later editing
     _world_models[document_id] = result
 
+    # Register with P1 simulation engine
+    _register_sim_world_model(document_id, result.world_model)
+
     return result
 
 
@@ -167,6 +171,10 @@ async def _run_extraction(task_id: str, document_id: str, question: str) -> None
             chunks_processed=len(chunks_resp.chunks),
         )
         _world_models[document_id] = result
+
+        # Register with P1 simulation engine
+        _register_sim_world_model(document_id, world_model)
+
         task.status = TaskStatus.COMPLETED
         task.result = result
     except Exception as e:
