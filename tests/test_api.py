@@ -201,6 +201,8 @@ class TestTask5WorldModel:
                     "value": {
                         "name": "Updated Variable",
                         "current_value": "999",
+                        "value_type": "quantitative",
+                        "unit": "units",
                         "description": "Replaced",
                         "source_ref": [],
                     },

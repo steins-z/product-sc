@@ -31,6 +31,12 @@ Quantitative or qualitative factors that could shift the prediction outcome:
 market share, revenue, policy changes, consumer sentiment, regulatory decisions,
 pricing, capacity, etc. Record their *current* known value.
 
+For each variable, classify its **value_type**:
+- `"quantitative"` — numeric or measurable (e.g. market share, revenue, price).
+  Include the **unit** (e.g. "%", "billion yuan", "USD/ton").
+- `"qualitative"` — descriptive or categorical (e.g. consumer sentiment,
+  policy direction, brand perception). Set `unit` to null.
+
 ## Rules
 1. Every extracted item MUST include `source_ref` — a list of chunk_ids from which
    the information was derived. Never fabricate references.

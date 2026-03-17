@@ -101,6 +101,8 @@ def sample_world_model() -> WorldModel:
             Variable(
                 name="market_share",
                 current_value="农夫山泉 26%, 华润怡宝 21%",
+                value_type="quantitative",
+                unit="%",
                 description="包装水市场份额",
                 source_ref=["chunk_0"],
             ),

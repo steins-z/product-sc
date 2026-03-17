@@ -46,6 +46,14 @@ class Variable(BaseModel):
 
     name: str = Field(..., description="Variable name")
     current_value: str = Field(..., description="Current or latest known value")
+    value_type: str = Field(
+        ...,
+        description="Type of variable: 'quantitative' (numeric/measurable) or 'qualitative' (descriptive/categorical)",
+    )
+    unit: str | None = Field(
+        default=None,
+        description="Unit of measurement for quantitative variables (e.g. '%', 'billion yuan', 'USD/ton'). Null for qualitative.",
+    )
     description: str = Field(..., description="What this variable represents and why it matters")
     source_ref: list[str] = Field(
         ..., description="List of chunk_ids that support this extraction"

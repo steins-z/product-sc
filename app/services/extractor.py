@@ -83,10 +83,12 @@ WORLD_MODEL_JSON_SCHEMA = {
                 "properties": {
                     "name": {"type": "string"},
                     "current_value": {"type": "string"},
+                    "value_type": {"type": "string", "enum": ["quantitative", "qualitative"]},
+                    "unit": {"type": ["string", "null"]},
                     "description": {"type": "string"},
                     "source_ref": {"type": "array", "items": {"type": "string"}}
                 },
-                "required": ["name", "current_value", "description", "source_ref"],
+                "required": ["name", "current_value", "value_type", "unit", "description", "source_ref"],
                 "additionalProperties": False
             }
         },
@@ -130,6 +132,8 @@ _MOCK_RESPONSE: dict[str, Any] = {
         {
             "name": "消费升级vs降级趋势",
             "current_value": "分化中",
+            "value_type": "qualitative",
+            "unit": None,
             "description": "宏观经济放缓影响高端水，但健康意识提升利好无糖茶",
             "source_ref": ["mock_chunk_0"],
         }
@@ -174,6 +178,8 @@ def _build_schema_instruction() -> str:
     {
       "name": "string (变量名称)",
       "current_value": "string (当前值)",
+      "value_type": "string (quantitative 或 qualitative)",
+      "unit": "string 或 null (量化变量的单位，如 '%', '亿元'; 定性变量填 null)",
       "description": "string (变量描述)",
       "source_ref": ["string (chunk_id列表)"]
     }
